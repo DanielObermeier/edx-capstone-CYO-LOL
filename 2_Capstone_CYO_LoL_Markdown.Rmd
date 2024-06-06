@@ -1,0 +1,825 @@
+---
+title: "League of Legens Win Prediction - Chose your own - edx Capstone"
+author: "Daniel Obermeier"
+date: "2024-05-30"
+output:
+  pdf_document: default
+  html_document:    
+      toc: true
+      theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# Executive Summary
+In this project, we build a machine learning classifier that helps us to predict the winner in an online game called "League of Legends." League of Legends (LoL) is one of the most popular competitive online games in which professional Esports player regularly compete for high monetary prizes. The goal of our analysis is not only to predict the winner but also to understand which features help to predict the win to learn about strategies that increase the chances of winning the game. Such insights are valuable for professional player who play the game for a winning but can also inform casual players on how to do better. 
+
+The data we use is a sample of almost 10,000 competitive games. The features in our data set are different performance indicators measures after 10 minutes. Therefore, our analysis seeks to reveal what players need to do in the first 10 minutes to increase their chance of winning the game. 
+
+After exploring the data in a short exploratory data analysis, we build different models and compare their performance based on their prediction accuracy and the F1 score they can achieve on a test set not used for training. We will use a simple logistic regression as a based line and among others a naive bayes classifier, a k-nearest-neighbor classifier, a support vector machines, a random forest classifier, an ensemble method, and xgboosting. 
+
+The final outcome reveals that a **xgboost** classifier yields the best accuracy and F1 score. 
+
+At the end of this report, we will also discuss limitation and avenues to further improve the models we explored in this project. 
+
+
+## Table of content 
+
+### 1. [Introduction](#introduction)
+### 2. [Analysis](#analysis)
+### 3. [Discussion](#discussion)
+### 4. [Conclusion](#conclusion)
+
+
+**Important note: This script requires 25min to run on a MacBook Pro M3 Max with 36GB unified memory and potentially much longer on a less powerful machine**
+
+# 1. [Introduction](#introduction)
+League of Legends (LoL) is one of the most popular online games that has ever existed. At its peak in 2022, it attracted more than 180 million monthly active players [1]. Even today, millions of players compete in LoL. LoL also offers an Esports League where only the best of the best compete for staggering price pools. For instance, the prize pool for the biggest LoL tournament in 2022 alone was over 2.2 million US dollars [2]. 
+
+Given the high stakes and the highly competitive nature of this game, the goal of our project is to provide data-based insights into how to win more games. 
+In this project, we will use a data set ([available here](https://www.kaggle.com/datasets/bobbyscience/league-of-legends-diamond-ranked-games-10-min/data)) comprising almost 10k high end (ELO DIAMOND I to MASTER) LoL games. In addition to a variable that indicates which team (blue or red) has won, this data set contains features measuring key performance indicators after the first 10 minutes of the game. Based on these features, we try to predict the final winner. The predictive power of different variables will provide us with insights what strategies players should focus on in the first 10 minutes of a game to increase their chance of winning the game. 
+
+Technically, we will build different classification models and compare their performance. We will use the **accuracy** and the **F1 score** as our key performance metrics and validate our best performing model on a final holdout data set that we did not use for training. 
+
+
+
+The accuracy can be compute as follows:
+$$Accuracy = \frac{True\: Positives\:(TP)+ True\: Negatives \:(TN)}{Total \:Number \:of \:Instances}$$
+
+The F1 one score can be compute as follows: 
+$$F1score = \frac{2* Precision*Recall}{Precision+Recall}$$
+Where Precision is:
+$$Precision = \frac{True \:Positives\: (TP)}{True \:Positives\:(TP) = False \:Positives \:(FP)}$$
+
+And Recall (also called sensitivity) is:
+$$Recall = \frac{True \:Positives\: (TP)}{True\: Positives \:(TP) = False \:Negatives \:(FN)}$$
+
+Later on, we will compute these metrics using the caret package. 
+
+
+## Install libraries
+
+To run this script, we need to load some libraries. 
+Before we load the libraries, we check if they are installed and install them if necessary. 
+
+```{r libraries, echo=FALSE, warning=FALSE, message=FALSE}
+# check if necessary libraries are installed and install if necessary
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(lubridate)) install.packages("lubridate")
+if(!require(caret)) install.packages("caret")
+if(!require(kableExtra)) install.packages("kableExtra")
+if(!require(knitr)) install.packages("knitr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(RColorBrewer)) install.packages("RColorBrewer")
+if(!require(reshape2)) install.packages("reshape2")
+if(!require(corrplot)) install.packages("corrplot")
+if(!require(e1071)) install.packages("e1071")
+if(!require(randomForest)) install.packages("randomForest")
+if(!require(xgboost)) install.packages("xgboost")
+
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(caret)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(RColorBrewer)
+library(reshape2)
+library(corrplot)
+library(e1071)
+library(randomForest)
+library(xgboost)
+
+# set seed to ensure reproducibility 
+set.seed(1, sample.kind="Rounding") # if using R 3.6 or later
+
+```
+
+
+## Importing the data set
+
+The data set we are using for this project is [available here](https://www.kaggle.com/datasets/bobbyscience/league-of-legends-diamond-ranked-games-10-min/data) but I also provide it as part of my Github repository. The original author of the data set is Yi Lan Ma ([kaggle profile](https://www.kaggle.com/bobbyscience)).
+
+We can import the data set by using its relative path like this:
+```{r import data, echo=TRUE, warning=FALSE, message=FALSE}
+
+lol_data <- read.csv("0_Capstone_data_LeagueOfLegends_10min.csv")
+
+```
+
+
+## Variable description
+```{r variables, echo=FALSE, warning=FALSE, message=FALSE}
+# get number of columns
+variables <- ncol(lol_data)
+
+```
+
+As we can see in the table below, the data set comprises `r variables` variables. 
+The **gameID** variable identifies the game. **blueWins** is our outcome variable. It indicates who won the game. One means the blue team has won. Zero means the red team won. 
+The remaining variables (38 in total) are the same 19 features for each of the two teams. They include number of kills, deaths, assists, amount of gold etc. We will explore a few of these variables later on in greater detail. Table 1 shows the names of all variables. 
+
+```{r variables 2, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Get the variable names
+variable_names <- colnames(lol_data)
+
+# Create a data frame to display the variable names in a table format
+variable_table <- data.frame(Variable = variable_names)
+
+# Print the table with kableExtra::kable
+variable_table %>%
+  kable(caption = "Variable Names in the Dataset") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+
+
+
+
+## Data cleaning
+As the data has been preprocessed by its author, we do not need to do much cleaning. 
+```{r data cleaning, echo=FALSE, warning=FALSE, message=FALSE}
+missing_values <- sum(is.na(lol_data))
+```
+
+Still, we are checking for missing values. Good news is there are `r missing_values` missing values. Thus, we can proceed. 
+
+## Creating data sets (training set, testing set, and final holdout set)
+Before we start with the data exploration and building our model, we create three data sets.
+First, we partition the data set so that 10% of the total data goes into our final holdout data set (called: **final_holdout_test**). We will not use this data set for any type of analysis (i.e., exploratory data analysis or creating different models). We will only use it to evaluate the performance of our final model on data completely new to the model. 
+Second, we split the remaining 90% of the into a training data set (called: **lol_train**), which we use to build our model and a testing data set, which we use to evaluate the models we build on an ongoing basis. We follow common practice and again use 90% of the remaining data for the training data set and 10% for the test set (**lol_test**). 
+
+```{r data split, echo=FALSE, warning=FALSE, message=FALSE}
+
+# create final holdout test set
+holdout_index <- createDataPartition(y = lol_data$blueWins, times = 1, p = 0.1, list = FALSE)
+lol <- lol_data[-holdout_index,]
+final_holdout_test <- lol_data[holdout_index,]
+
+
+# create train and test data sets
+test_index <- createDataPartition(y = lol$blueWins, times = 1, p = 0.1, list = FALSE)
+lol_train <- lol[-test_index,]
+lol_test <- lol[test_index,]
+
+
+# confirm split ratios
+holdout_frac <- nrow(final_holdout_test)/nrow(lol_data)*100
+train_frac <- nrow(lol_train)/nrow(lol_data)*100
+test_frac <- nrow(lol_test)/nrow(lol_data)*100
+
+```
+
+After split the data sets, we can confirm that our holdout data set has roughly 10% (`r holdout_frac`%) of the data. Our train data `r train_frac`% (i.e.,90% of 90% of our total data) set has and the test data set has `r test_frac`% (i.e.,10% of 90% of our total data) of the total data. 
+
+\newpage
+
+# 2. [Analysis](#analysis)
+
+To analyse our data, we proceed in two steps. 
+First, we conduct an exploratory data analysis to get a feeling for our data and decide which features we want to select or create if necessary.
+Second, we build different models using the train data set and evaluate their performance on our test data set. 
+
+## Exploratory data analysis 
+
+We will conduct our exploratory data analysis only on our training data set. 
+
+### Descriptive Statistics
+Table 2 show summary statistics of all variables in our data set.
+
+```{r descriptive statistics, echo=FALSE, warning=FALSE, message=FALSE}
+# Detailed summary statistics using psych
+detailed_stats <- psych::describe(lol_train)
+
+# Drop columns to improve readability
+detailed_stats <- detailed_stats %>%
+  select(-median, -trimmed, -mad, -range,-skew, -kurtosis, -se)
+
+# Display the statistics using kable
+kable(detailed_stats, caption = "Summary Statistics")
+```
+\newpage
+
+Based on our summary statistics and the plot below, we can already see that there is no imbalance regarding which side (blue or red) wins. This is good news. The game seems balanced. 
+
+```{r win balance, echo=FALSE, warning=FALSE, message=FALSE}
+
+
+lol_train_plot <- lol_train
+
+lol_train_plot$blueWins_col <- ifelse(lol_train_plot$blueWins == 1, "blue wins", "red wins")
+
+# Create the bar plot with custom labels
+ggplot(lol_train_plot, aes(x = factor(blueWins_col), fill=blueWins_col)) +
+  geom_bar() +
+  scale_fill_manual(values = c("blue wins" = "blue", "red wins" = "red")) +
+  labs(title = "Bar Plot of Wins by color",
+       x = "Color",
+       y = "Win Count") +
+  theme_minimal()
+
+
+```
+
+\newpage
+
+### Correlations
+
+As it is quite complex to understand how 38 features influence our outcome variable, we analyze correlation patterns to check which variables we should focus on and which variables we can potentially ignore. 
+
+We plot two correlation plots. One comprises all variables for the blue team. The other all variables for the red team. 
+
+Correlation plot blue team variables:
+
+```{r blue correlation, echo=FALSE, warning=FALSE, message=FALSE}
+
+# select all variables for the blue team
+blue_vars <- lol_train[, c(2:21)]
+
+# create correlation matrix
+cor_matrix_blue <- cor(blue_vars)
+
+# Create the correlation plot
+corrplot(cor_matrix_blue, method = 'color', order = 'FPC', tl.cex = 0.7)
+```
+
+
+\newpage
+Correlation plot red team variables:
+
+```{r red correlation, echo=FALSE, warning=FALSE, message=FALSE}
+
+# select all variables for the red team
+red_vars <- lol_train[, c(2, 22:40)]
+
+# create correlation matrix
+cor_matrix_red <- cor(red_vars)
+
+# Create the correlation plot
+corrplot(cor_matrix_red, method = 'color', order = 'FPC', tl.cex = 0.7)
+
+```
+
+
+Based on the correlations, we can already observe some interesting patterns. 
+For instance, we can see that the number of wards placed and destroyed hardly correlate with any other variable and most importantly not with what team won. Therefore, these variables might not be 
+important to explain who won the final game and we could consider dropping them. 
+Further, we can see that some variables are almost perfect correlates (e.g., redGoldDiff & redExperienceDiff, redTotalGold & redGoldPerMin, redTotalExperience &redAvgLevel, redCSperMin & redTotalMinionsKilled, redAssists & redKills). These correlations make perfect sense as for example each levels depend on experience, thus we would expect that total experience and the level are highly correlated. Or every kill es rewarded with gold and experience, thus gold and experience are highly correlated. 
+
+Finally, the variables redGoldDiff and blueGoldDiff are perfectly correlated variables as they measure the difference of gold between the two teams. To avoid multicolinearity issues, we will only keep blueGoldDiff.  The same applies to redExperienceDiff.
+
+```{r drop variables, echo=FALSE, warning=FALSE, message=FALSE}
+
+# drop irrelevant and potentially collinear variables
+vars_to_drop <- c("gameId",
+                  "redGoldDiff", 
+                  "redExperienceDiff") 
+                  #blueExperienceDiff, 
+                  #"redTotalGold", 
+                  #"redAvgLevel", 
+                  #"redCSPerMin", 
+                  #"redAssists",
+                  #"blueTotalGold", 
+                  #"blueAvgLevel", 
+                  #"blueCSPerMin", 
+                  #"blueAssists",
+                  #"redWardsDestroyed",
+                  #"blueWardsDestroyed",
+                  #"redWardsPlaced",
+                  #"blueWardsPlaced")
+                                           
+# drop variables
+lol_train <- lol_train %>% select(-all_of(vars_to_drop))
+lol_test <- lol_test %>% select(-all_of(vars_to_drop))
+final_holdout_test_selected <- final_holdout_test %>% select(-all_of(vars_to_drop))
+
+```
+
+
+
+Regarding our target variable (blueWins), we can also see some interesting patterns. For example, we see a negative correlation between the gold of the red team and the win of a blue team and a positive correlation between the gold of the blue team and the win of the blue team. For the deaths of the red team, we see a positive correlation with the win of the blue team and a negative correlation between the deaths of the blue team and the win of the blue team. Based on this we can already form the hypotheses that the amount of goal a team makes in the first 10 minutes and the number of deaths it suffers seem to explain to some extent if they win or lose.
+
+To further investigate this pattern, we can sort the correlations of all variables with our target variable by their magnitude. And create a bar plot to better see their magnitude. Based on this plot, we can see that gold, experience, kills, and deaths have the highest correlations. 
+
+```{r sort and plot correlations, echo=FALSE, warning=FALSE, message=FALSE}
+# select correlations with target and order by magnitude
+cor_matrix <- cor(lol_train[1:ncol(lol_train)])
+cor_with_target <- abs(cor_matrix["blueWins", ]) # we convert to absolute values as we care only about the magnitude
+
+# Sort the correlations in descending order
+sorted_cor <- sort(cor_with_target, decreasing = TRUE)
+
+# Create a data frame for plotting
+cor_data <- data.frame(Variable = names(sorted_cor), Correlation = sorted_cor)
+
+# Plot the correlations
+ggplot(cor_data, aes(x = reorder(Variable, Correlation), y = Correlation)) +
+  geom_bar(stat = "identity") +
+  coord_flip() + # Flip coordinates to make it horizontal
+  labs(title = "Correlation Coefficients with blueWins", x = "Variable", y = "Correlation Coefficient") +
+  theme_minimal()
+
+```
+
+
+
+## Building models 
+
+Now that we have a basic understanding of our data, we proceed with building different models. 
+
+### Naive model
+For a first, naive model, we just predict that blue always wins. As the wins are quite balanced, it does not really matter if we predict that blue or red wins all the time.
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+actual <- factor(lol_test$blueWins)
+naive_pred <- factor(rep(1, length(lol_test$blueWins)))
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(naive_pred, actual, mode = "everything", positive="1")
+
+# Performance metrics
+naive_accuracy <- conf_matrix$overall["Accuracy"]
+naive_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+By predicting blue always wins, we can achieve an accuracy of `r naive_accuracy` and a F1 score of `r naive_f1`. This is also what we would expect given that wins are balanced.
+
+
+### Baseline model (Logistic regression) 
+
+As guessing only one side wins all the time is not a very good baseline, we check if we can do better with a simple logistic regression. 
+In this regression, we include all variables we identified before. 
+
+```{r logistic regression, echo=TRUE, warning=FALSE, message=FALSE}
+
+# train logistic regression model
+log_reg_model <- glm(blueWins ~ ., 
+                     data = lol_train, 
+                     family = binomial)
+
+# Make predictions on test set
+log_reg_preds <- predict(log_reg_model, 
+                         newdata = lol_test, 
+                         type = "response")
+
+# Convert probabilities to binary predictions
+binary_log_reg_preds <- ifelse(log_reg_preds > 0.5, 1, 0)
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(binary_log_reg_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+log_reg_accuracy <- conf_matrix$overall["Accuracy"]
+log_reg_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+We can see that already a simple logistic regression significantly improve our prediction performance. Our accuracy increases to `r log_reg_accuracy` and the F1 score to `r log_reg_f1`.
+This will serve as our new baseline. 
+
+
+### Naive Bayes 
+Next, we fit a naive bayes classifer. As naive bayes does not really have tunable hyperparameter, we only fit one model. 
+```{r naive bayes, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Train the Naive Bayes model 
+naive_bayes_model <- naiveBayes(blueWins ~ ., 
+                           data = lol_train)
+
+# Make predictions on test set
+naive_bayes_preds <- predict(naive_bayes_model, 
+                             newdata = lol_test)
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(naive_bayes_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+naive_bayes_accuracy <- conf_matrix$overall["Accuracy"]
+naive_bayes_f1 <- conf_matrix$byClass["F1"]
+
+```
+Our Naive Bayes model only slightly increase the accuracy to `r naive_bayes_accuracy` and the F1 score to `r naive_bayes_f1`.
+
+
+### K-nearest neighbors
+
+For k-nearest the most important hyperparameter is k, the number of neighbors. 
+We use 10-fold crossvalidation to search the opimal number of neighbors. 
+
+```{r K-nearest neighbors, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Define training control with 10-fold cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train and tune the k-NN model
+knn_model <- train(blueWins ~ ., data = lol_train, method = "knn",
+               trControl = train_control,
+               tuneLength = 30)  # Automatically test k from 1 to 10
+
+
+# Make predictions on the test set
+knn_preds <- predict(knn_model, newdata = lol_test)
+
+# Convert probabilities to binary predictions
+binary_knn_preds <- ifelse(knn_preds > 0.5, 1, 0)
+
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(binary_knn_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+knn_accuracy <- conf_matrix$overall["Accuracy"]
+knn_f1 <- conf_matrix$byClass["F1"]
+
+# best tunes
+bestneighbors <- knn_model$bestTune[1]
+
+```
+
+We can see that our knn model slightly increase our accuracy to `r knn_accuracy` and the F1 score to `r knn_f1`. We achieve these values with k=`r bestneighbors`.
+
+
+### Random Forest
+
+The next model we try is a random forest model. For these models, we have a set of hyperparameters (e.g., the number of trees or mtry which is the number of features to consider when looking for the best split). Again, we use 10-fold cross validation to find the best model. 
+
+```{r random forest, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Define training control with 10-fold cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Define the grid of hyperparameters to tune
+tune_grid <- expand.grid(mtry = c(1, 2, 3, 5, 10))
+
+
+# Train and tune the Random Forest model
+rf_model <- train(as.factor(blueWins) ~ ., data = lol_train, 
+                  method = "rf", 
+                  ntree = 200,
+                  trControl = train_control,
+                  tuneGrid = tune_grid,
+                  nSamp = 500)
+
+
+fit_rf <- randomForest(lol_train[, -1], lol_train$blueWins, 
+                       mtry = rf_model$bestTune$mtry)
+
+# Make predictions on the test set
+rf_preds <- predict(fit_rf, newdata = lol_test[, -1])
+
+
+# Convert probabilities to binary predictions
+binary_rf_preds <- ifelse(rf_preds > 0.5, 1, 0)
+
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(binary_rf_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+rf_accuracy <- conf_matrix$overall["Accuracy"]
+rf_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+
+We can see that random forest model actually performs worse than knn with an accuracy of `r rf_accuracy` and an F1 score of `r knn_f1`. 
+
+
+### Support Vector Machine (SVM)
+
+Next, we test a svm classifier and again tune it with 10-fold crossvalidation. 
+
+```{r svm, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Define training control with 10-fold cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Define the grid of hyperparameters to tune
+tune_grid <- expand.grid(
+  C = 2^(-5:2),  # Regularization parameter
+  sigma = 2^(-5:2)  # Kernel parameter for RBF kernel
+)
+
+
+# Train and tune the SVM model
+svm_model <- train(as.factor(blueWins) ~ ., data = lol_train, method = "svmRadial",
+               trControl = train_control, tuneGrid = tune_grid)
+
+
+svm_preds <- predict(svm_model, newdata = lol_test)
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(svm_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+svm_accuracy <- conf_matrix$overall["Accuracy"]
+svm_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+Again, our results are slightly worse than the results from our best model. Accuracy: `r svm_accuracy`;  F1 score: `r svm_f1`. 
+
+
+### Ensemble
+
+We know that each model comes up with different predictions. 
+We can try to improve our model's performance even further by combining different models in an ensemble 
+and use their joint predictive power. Our hope is that the majority vote of a combination of different models
+is better than the best performing model. 
+
+To create our ensemble, we take the three best performing models and predict that blue wins only if at least two models say so. 
+
+```{r ensemble, echo=TRUE, warning=FALSE, message=FALSE}
+
+# compute a majority vote of all three models
+ensemble_sum <- as.numeric(binary_log_reg_preds) + 
+                as.numeric(naive_bayes_preds) + 
+                as.numeric(binary_knn_preds)  
+
+binary_ensemble_preds <- ifelse(ensemble_sum > 1, 1, 0)
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(binary_ensemble_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+ensemble_accuracy <- conf_matrix$overall["Accuracy"]
+ensemble_f1 <- conf_matrix$byClass["F1"]
+```
+Interestingly, we can see that our accuracy is slightly worse (accuracy ensemble: `r ensemble_accuracy`) than the our best accuracy so far but our F1 score has increased to `r ensemble_f1`
+
+
+### XGBoost
+
+The final model we test is an XGBoost classifier. It relies on extreme gradient boosting and is quite successfully used in various machine learning challenges on kaggle.com.We use 10-fold crossvalidation to find the best model. 
+
+IMPORTANT: This model takes quite some time to train. If you run this code on a less powerful machine you might want consider skipping it. 
+
+```{r XGBoost, echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+
+lol_train$blueWins <- as.factor(lol_train$blueWins)
+lol_test$blueWins <- as.factor(lol_test$blueWins)
+
+# Define training control with 10-fold cross-validation
+train_control <- trainControl(method = "cv", 
+                              number = 10, 
+                              verboseIter = FALSE)
+
+# Define the grid of hyperparameters to tune
+tune_grid <- expand.grid(
+  nrounds = c(50, 100),
+  max_depth = c(3, 6, 9),
+  eta = c(0.01, 0.1, 0.3),
+  gamma = c(0, 1),
+  colsample_bytree = c(0.5, 0.7, 1),
+  min_child_weight = c(1, 3, 5),
+  subsample = c(0.5, 0.7, 1)
+)
+
+# Train and tune the XGBoost model
+xgboost_model <- train(x = as.matrix(lol_train[,-1]), 
+                       y = lol_train$blueWins, 
+                       method = "xgbTree",
+                       trControl = train_control,
+                       tuneGrid = tune_grid)
+
+# Make predictions on the test set
+xgboost_preds <- predict(xgboost_model, newdata = as.matrix(lol_test[,-1]))
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(xgboost_preds), 
+                               as.factor(lol_test$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Performance metrics
+xgboost_accuracy <- conf_matrix$overall["Accuracy"]
+xgboost_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+We can see that our accuracy of `r xgboost_accuracy` and F1 score of `r xgboost_f1`is slightly worse than those we obtained for simpler models. 
+
+
+# 3. [Discussion](#discussion)
+The following table compares the performance of all models. 
+As we decide to prioritize the F1 score over the simple accuracy, we choose the ensemble as our final model. 
+Further, we also keep the XGBoost model as it offers a simple way to assess the importance of individual features which come in handy if we want to explain how a model makes predictions and if we want to derive 
+recommendations for a potential strategy users should follow in the first 10 minutes of a game. 
+
+```{r results summary, echo=FALSE, warning=FALSE, message=FALSE}
+
+mod_comp <- tibble("Model" = c("Guessing"),
+                           "Accuracy" = naive_accuracy,
+                           "F1" = naive_f1)
+
+# add logistic regression results
+mod_comp <- mod_comp %>% add_row("Model" = c("Logistic regression"),
+                                             "Accuracy" = log_reg_accuracy,
+                                             "F1" = log_reg_f1)
+
+# add naive bayes results
+mod_comp <- mod_comp %>% add_row("Model" = c("Naive bayes"),
+                                             "Accuracy" = naive_bayes_accuracy,
+                                             "F1" = naive_bayes_f1)
+
+# add knn results
+mod_comp <- mod_comp %>% add_row("Model" = c("Knn"),
+                                             "Accuracy" = knn_accuracy,
+                                             "F1" = knn_f1)
+
+# add random forest results
+mod_comp <- mod_comp %>% add_row("Model" = c("Random forest"),
+                                             "Accuracy" = rf_accuracy,
+                                             "F1" = rf_accuracy)
+
+# add svm results
+mod_comp <- mod_comp %>% add_row("Model" = c("SVM"),
+                                             "Accuracy" = svm_accuracy,
+                                             "F1" = svm_f1)
+
+# add ensemble results
+mod_comp <- mod_comp %>% add_row("Model" = c("Ensemble"),
+                                             "Accuracy" = ensemble_accuracy,
+                                             "F1" = ensemble_f1)
+
+# add xgboost results
+mod_comp <- mod_comp %>% add_row("Model" = c("XGBoost"),
+                                             "Accuracy" = xgboost_accuracy,
+                                             "F1" = xgboost_f1)
+
+mod_comp
+
+```
+
+
+## Predictions on hold out data set
+
+To test the performance of our best performing model, we make predictions on the final holdout data set 
+we have not used during the training process. As explained above, we will use our ensemble model and the xgboost model. 
+
+We can use the following code to use our pre-trained models to make predictions on the holdout test set.
+This is what the code looks like for our ensemble:
+
+```{r validation ensemble, echo=TRUE, warning=FALSE, message=FALSE}
+# make predictions on the final holdout test set
+log_reg_final_preds <-predict(log_reg_model, newdata = final_holdout_test_selected[,-1])
+naive_bayes_final_preds <-predict(naive_bayes_model, newdata = final_holdout_test_selected[,-1])
+knn_final_preds <-predict(knn_model, newdata = final_holdout_test_selected[,-1])
+
+# convert prediction to binary labels
+binary_log_reg_final_preds <- ifelse(log_reg_final_preds > 0.5, 1, 0)
+binary_knn_final_preds <- ifelse(knn_final_preds > 0.5, 1, 0)
+
+ensemble_sum <-as.numeric(binary_log_reg_final_preds) + 
+               as.numeric(binary_knn_final_preds) + 
+              as.numeric(naive_bayes_final_preds)
+
+# create majority vote
+binary_final_ensemble_preds <- ifelse(ensemble_sum > 1, 1, 0)
+
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(binary_final_ensemble_preds), 
+                               as.factor(final_holdout_test_selected$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Calculate accuracy
+ensemble_final_accuracy <- conf_matrix$overall["Accuracy"]
+
+
+# Calculate F1
+ensemble_final_f1 <- conf_matrix$byClass["F1"]
+
+
+```
+
+And this is what the code looks like for our xgboost model:
+
+```{r validation on holdout set, echo=TRUE, warning=FALSE, message=FALSE}
+# make predictions on the final holdout testset)
+xgboost_preds <- predict(xgboost_model, newdata = as.matrix(final_holdout_test_selected[,-1]))
+
+
+# Confusion matrix
+conf_matrix <- confusionMatrix(as.factor(xgboost_preds), 
+                               as.factor(final_holdout_test_selected$blueWins), 
+                               mode = "everything", 
+                               positive="1")
+
+# Calculate accuracy
+xgboost_final_accuracy <- conf_matrix$overall["Accuracy"]
+
+# Calculate F1
+xgboost_final_f1 <- conf_matrix$byClass["F1"]
+
+```
+
+The following table shows that both models performance almost equally on the holdout test set. 
+
+```{r final comparison, , echo=FALSE, warning=FALSE, message=FALSE}
+
+
+final_comp <- tibble("Model" = c("Ensemble"),
+                     "Accuracy" = ensemble_final_accuracy,
+                     "F1" = ensemble_final_f1)
+
+# add logistic regression results
+final_comp <- final_comp %>% add_row("Model" = c("XGBoost"),
+                                             "Accuracy" = xgboost_final_accuracy,
+                                             "F1" = xgboost_final_accuracy)
+
+final_comp
+
+```
+
+
+Overall, a performance of above 74% is not bad at all considering most games in our skill group take up to 30 minutes [4]. However, we must also consider that all strategies we drive from our models by no means guarantee a win. 
+
+
+## Exploring feature importance
+
+One advantage of our XGBoost model over our ensemble method is that it is fairly easy to investigate the 
+feature importance of our XGBoost model and derive insights regarding the "winning" strategy. We can simply call the best xgboost model we received after fine tuning, extract the features' importance, and plot them. 
+
+The following plot shows that the most important feature for our prediction is the Gold difference between two teams. Four of the other top 5 features are also related to experience and gold which are in turn associated with killing mobs. Only on position three and seven, we see killing the blue dragon and kills of jungle minions.  
+
+```{r feature importance, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Extract the trained XGBoost model
+final_model <- xgboost_model$finalModel
+
+# Get the feature names
+feature_names <- colnames(lol_train)[-1]
+
+# Calculate feature importance
+importance_matrix <- xgb.importance(feature_names = feature_names, model = final_model)
+
+# Print the feature importance
+#print(importance_matrix)
+
+# Plot the feature importance
+xgb.plot.importance(importance_matrix)
+
+```
+
+Based on the insights we got from the graph above, we can derive strategic advice that would sound like this:
+To increase your changes of winning the game, in the first 10 minutes, you should focus on collecting as much gold and experience as possible and prevent your opponent from doing the same. Not the absolute value seems important but the difference between the opponents. If you find time, you should go for the dragon and jungle minions. Destroying towers and getting first blood and heralds are less important. 
+
+Of course, this strategy does not guarantee that you will win in the end and needs further insights from experienced players but it is a start. Further, your opponent might adjust according to your strategy. 
+All these factors need to be considered to secure the win but at least it is a start. 
+
+
+# 4. [Conclusion](#conclusion)
+
+In this script, we used a data from the first 10 minutes of 10,000 competitive LoL matches to predict the final winner. With only a few variables, we were already able to achieve an accuracy of almost 75%. 
+This result is remarkable considering that games usually go on for 30 minutes. Our results can provide 
+ambitious LoL players with interesting insights on what they should do in the first 10 minutes of a match 
+in order to secure a win. 
+
+Our approach also has some limitations that lend themselves to further research and potential model improvements. First, while 10,000 matches sounds like a lot, way more data is available and can 
+increase model performance. Second, the set of available features is rather limited. Additional variables 
+about the team composition or the chosen heroes might further improve our models performance. Third, with more data on the teams it would be possible to create more sophisticated strategies. For example, one
+could use unsupervised learning to classify different play styles and assess which play style performs 
+better against other play styles or even individual teams. 
+
+Overall, this project already shows the power of data-based insights and that data science is a suitable tool to derive interesting strategies for competitive online gaming. 
+
+
+# References
+
+1. https://prioridata.com/data/league-of-legends/#League_of_Legends_Player_Count
+2. https://economictimes.indiatimes.com/news/international/us/prize-pool-for-league-of-legends-worlds-check-how-much-money-will-be-distributed-this-year/articleshow/94541119.cms?from=mdr
+3. https://www.kaggle.com/datasets/bobbyscience/league-of-legends-diamond-ranked-games-10-min/data
+4. https://www.leagueofgraphs.com/stats/game-durations
+
